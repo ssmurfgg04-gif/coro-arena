@@ -6,7 +6,17 @@
 # upcoming challenge targets. Same loadgen binary and flags as the tdsc-bench
 # rig, so numbers are directly comparable with the sink/server history.
 set -uo pipefail
-TAG=$1 SERVER=$2 VUS=$3 RAMP=$4 HOLD=$5 ROOT=$6 LOADGEN=$7
+TAG=$1 SERVER=$2 ROOT=$3 LOADGEN=$4
+case "$TAG" in
+20k)  VUS=20000  RAMP=60  HOLD=120 ;;
+100k) VUS=100000 RAMP=90  HOLD=180 ;;
+150k) VUS=150000 RAMP=120 HOLD=240 ;;
+200k) VUS=200000 RAMP=150 HOLD=240 ;;
+250k) VUS=250000 RAMP=150 HOLD=240 ;;
+300k) VUS=300000 RAMP=180 HOLD=240 ;;
+400k) VUS=400000 RAMP=210 HOLD=240 ;;
+*) echo "unknown level $TAG"; exit 2 ;;
+esac
 PORT=3100
 B=/tmp/bench
 rm -rf "$B"; mkdir -p "$B"

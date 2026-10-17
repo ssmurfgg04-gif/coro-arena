@@ -8,8 +8,8 @@ on:
   workflow_dispatch:
     inputs:
       levels:
-        description: 'matrix JSON, e.g. [{"vus":250000,"ramp":150,"hold":240,"tag":"250k"}]'
-        default: '[{"vus":20000,"ramp":60,"hold":120,"tag":"20k"},{"vus":100000,"ramp":90,"hold":180,"tag":"100k"},{"vus":250000,"ramp":150,"hold":240,"tag":"250k"},{"vus":300000,"ramp":180,"hold":240,"tag":"300k"}]'
+        description: 'JSON array of level tags: 20k,100k,250k,300k (decoded in run-arena.sh)'
+        default: '["20k","100k","250k","300k"]''
       servers:
         description: 'JSON array of servers, e.g. ["sink","co_server"]'
         default: '["sink","co_server","fio_server","muduo_server"]'
@@ -42,7 +42,7 @@ jobs:
       max-parallel: 8
       matrix:
         server: ${{ fromJSON(inputs.servers) }}
-        level: ${{ fromJSON(inputs.levels) }}
+        level: ${{ fromJSON(inputs.levels) }}   # tags; vus/ramp/hold decoded by the script
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -70,16 +70,14 @@ jobs:
       - name: bench ${{ matrix.server }} ${{ matrix.level.tag }}
         run: |
           bash scripts/run-arena.sh \
-            "${{ matrix.level.tag }}" "${{ matrix.server }}" \
-            "${{ matrix.level.vus }}" "${{ matrix.level.ramp }}" \
-            "${{ matrix.level.hold }}" \
+            "${{ matrix.level }}" "${{ matrix.server }}" \
             "$GITHUB_WORKSPACE" "$GITHUB_WORKSPACE/loadgen/loadgen"
 
       - name: job summary
         if: always()
         run: |
           {
-            echo "## ${{ matrix.server }} @ ${{ matrix.level.tag }} (${{ matrix.level.vus }} VUs)"
+            echo "## ${{ matrix.server }} @ ${{ matrix.level }}"
             echo
             echo '```'
             grep -a "RESULT\|STATS_JSON" /tmp/bench/run.log 2>/dev/null | tail -3 || echo "(no run log)"
@@ -94,7 +92,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: bench-${{ matrix.server }}-${{ matrix.level.tag }}
+          name: bench-${{ matrix.server }}-${{ matrix.level }}
           path: |
             /tmp/bench/run.log
             /tmp/bench/server.log
