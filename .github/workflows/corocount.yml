@@ -1,0 +1,51 @@
+name: corocount
+
+# libco coroutine capacity: the slim variant (aSpec[4], ~1KB/coroutine)
+# at 3M and 5M. The stock variant (aSpec[1024], ~9.2KB/coroutine) is
+# measured at 1M = 8.7GB, 2M = 15GB and shuts the 16GB runner VM down,
+# so it is skipped above 2M (arena.yml has the full data at 1M).
+on:
+  workflow_dispatch:
+    inputs:
+      levels:
+        description: 'JSON array of coroutine counts'
+        default: '["3000000","5000000"]'
+
+permissions:
+  contents: read
+
+jobs:
+  corocount:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        n: ${{ fromJSON(inputs.levels) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: build corocount slim
+        run: |
+          LIB="$PWD/servers/libco/libco"
+          SLIM="$PWD/corocount/libco_slim"
+          rm -rf "$SLIM"; mkdir -p "$SLIM"
+          cp "$LIB"/*.cpp "$LIB"/*.h "$LIB"/*.S "$SLIM/"
+          sed -i 's/stCoSpec_t aSpec\[1024\]/stCoSpec_t aSpec[4]/' "$SLIM/co_routine_inner.h"
+          for f in co_routine co_epoll co_hook_sys_call co_comm coctx; do
+            g++ -O2 -std=gnu++11 -w -c "$SLIM/$f.cpp" -I"$SLIM" -o slim_$f.o
+          done
+          g++ -O2 -c "$SLIM/coctx_swap.S" -o slim_coctx_swap.o
+          g++ -O2 -std=gnu++11 -o slim corocount/corocount.cpp \
+              slim_*.o -I"$PWD/servers/libco" -lpthread -ldl
+          echo "== binaries ready"
+
+      - name: slim libco (aSpec[4], ~1KB per coroutine)
+        run: |
+          sudo sysctl -w vm.overcommit_memory=1 || true
+          taskset -c 0-3 ./slim ${{ matrix.n }} || echo "corocount_slim: level DIED rc=$?"
+
+      - name: job summary
+        if: always()
+        run: echo "outputs are in the job log" >> "$GITHUB_STEP_SUMMARY"

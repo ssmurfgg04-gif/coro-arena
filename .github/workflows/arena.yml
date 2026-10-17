@@ -116,6 +116,12 @@ jobs:
 
       - name: stock libco (8KB aSpec per coroutine)
         run: |
+          # 1M measured: 8.7GB. 2M: 15GB and the 16GB runner VM gets shut
+          # down by the hypervisor, killing the job before the slim step.
+          if [ "${{ matrix.n }}" -gt 2000000 ]; then
+            echo "corocount: stock skipped at ${{ matrix.n }} (does not fit a 16GB runner; see README)"
+            exit 0
+          fi
           sudo sysctl -w vm.overcommit_memory=1 || true
           taskset -c 0-3 ./build/corocount ${{ matrix.n }} || echo "corocount: level DIED rc=$?"
 
