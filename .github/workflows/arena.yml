@@ -1,0 +1,137 @@
+name: arena
+
+# Head-to-head: libco (coroutines) vs muduo (one-loop-per-thread) vs
+# facil.io (evented C) vs sink (raw epoll baseline), same canned responses,
+# same C load generator, server pinned to 2 cores, loadgen to the other 2.
+# The corocount job answers "can these really hold 1M/3M/5M tasks".
+on:
+  workflow_dispatch:
+    inputs:
+      levels:
+        description: 'matrix JSON, e.g. [{"vus":250000,"ramp":150,"hold":240,"tag":"250k"}]'
+        default: '[{"vus":20000,"ramp":60,"hold":120,"tag":"20k"},{"vus":100000,"ramp":90,"hold":180,"tag":"100k"},{"vus":250000,"ramp":150,"hold":240,"tag":"250k"},{"vus":300000,"ramp":180,"hold":240,"tag":"300k"}]'
+      servers:
+        description: 'comma list: sink,co_server,fio_server,muduo_server'
+        default: 'sink,co_server,fio_server,muduo_server'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: deps
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libboost-dev
+      - name: build all
+        run: bash scripts/build-all.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bins
+          path: build/
+          retention-days: 7
+
+  bench:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        server: ${{ fromJSON(format('["{0}"]', replace(inputs.servers, ',', '","'))) }}
+        level: ${{ fromJSON(inputs.levels) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: bins, path: build }
+
+      - name: build loadgen
+        run: bash loadgen/build.sh && chmod +x build/*
+
+      - name: tune kernel for many connections
+        run: |
+          echo "== conntrack before: max=$(cat /proc/sys/net/netfilter/nf_conntrack_max 2>/dev/null || echo n/a) count=$(cat /proc/sys/net/netfilter/nf_conntrack_count 2>/dev/null || echo n/a)"
+          sudo sysctl -w net.netfilter.nf_conntrack_max=1048576 2>/dev/null || echo "(no conntrack module)"
+          sudo sysctl -w fs.file-max=4194304        || true
+          sudo sysctl -w fs.nr_open=1048576          || true
+          sudo sysctl -w net.core.somaxconn=65536    || true
+          sudo sysctl -w net.ipv4.tcp_max_syn_backlog=65536 || true
+          sudo sysctl -w 'net.ipv4.ip_local_port_range=1024 65535' || true
+          sudo sysctl -w net.ipv4.tcp_tw_reuse=1     || true
+          sudo sysctl -w net.ipv4.tcp_mem=786432 1048576 1572864 || true
+          sudo sysctl -w net.ipv4.tcp_rmem=4096 87380 16777216   || true
+          sudo sysctl -w net.ipv4.tcp_wmem=4096 65536 16777216   || true
+          sudo sysctl -w vm.overcommit_memory=1      || true
+          nproc; free -m | head -2
+
+      - name: bench ${{ matrix.server }} ${{ matrix.level.tag }}
+        run: |
+          bash scripts/run-arena.sh \
+            "${{ matrix.level.tag }}" "${{ matrix.server }}" \
+            "${{ matrix.level.vus }}" "${{ matrix.level.ramp }}" \
+            "${{ matrix.level.hold }}" \
+            "$GITHUB_WORKSPACE" "$GITHUB_WORKSPACE/loadgen/loadgen"
+
+      - name: job summary
+        if: always()
+        run: |
+          {
+            echo "## ${{ matrix.server }} @ ${{ matrix.level.tag }} (${{ matrix.level.vus }} VUs)"
+            echo
+            echo '```'
+            grep -a "RESULT\|STATS_JSON" /tmp/bench/run.log 2>/dev/null | tail -3 || echo "(no run log)"
+            echo '```'
+            echo
+            echo '```'
+            grep -a "stats:\|rig:" /tmp/bench/server.log 2>/dev/null | tail -8 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-${{ matrix.server }}-${{ matrix.level.tag }}
+          path: |
+            /tmp/bench/run.log
+            /tmp/bench/server.log
+            /tmp/bench/stats.json
+          retention-days: 7
+
+  corocount:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        n: [1000000, 3000000, 5000000]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: bins, path: build }
+      - run: chmod +x build/*
+
+      - name: stock libco (8KB aSpec per coroutine)
+        run: |
+          sudo sysctl -w vm.overcommit_memory=1 || true
+          taskset -c 0-3 ./build/corocount ${{ matrix.n }} || echo "corocount: level DIED rc=$?"
+
+      - name: slim libco (aSpec[4])
+        run: |
+          taskset -c 0-3 ./build/corocount_slim ${{ matrix.n }} || echo "corocount_slim: level DIED rc=$?"
+
+      - name: job summary
+        if: always()
+        run: |
+          {
+            echo "## corocount @ ${{ matrix.n }} coroutines"
+            echo
+            echo '```'
+            echo "stock and slim outputs are in the log above"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
