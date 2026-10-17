@@ -57,12 +57,13 @@ fi
 MU="$ROOT/servers/muduo/muduo"
 # explicit file list (muduo's own CMakeLists selection minus examples/tests;
 # boilerplate.cc and friends are not part of the library)
-MU_SRC=$(echo \
-  Acceptor Buffer Channel EventLoop EventLoopThread EventLoopThreadPool \
-  InetAddress Poller Socket SocketsOps TcpConnection TcpServer Timer TimerQueue \
-  | sed "s|[^ ]*|$MU/muduo/net/\&.cc|g")" \
-  $MU/muduo/net/poller/DefaultPoller.cc $MU/muduo/net/poller/EPollPoller.cc $MU/muduo/net/poller/PollPoller.cc \
-  $(ls $MU/muduo/base/*.cc | grep -v /tests/)
+N="$MU/muduo/net"
+MU_SRC="$N/Acceptor.cc $N/Buffer.cc $N/Channel.cc $N/EventLoop.cc \
+$N/EventLoopThread.cc $N/EventLoopThreadPool.cc $N/InetAddress.cc $N/Poller.cc \
+$N/Socket.cc $N/SocketsOps.cc $N/TcpConnection.cc $N/TcpServer.cc $N/Timer.cc \
+$N/TimerQueue.cc \
+$N/poller/DefaultPoller.cc $N/poller/EPollPoller.cc $N/poller/PollPoller.cc \
+$(ls $MU/muduo/base/*.cc | grep -v /tests/)"
 g++ -O2 -std=c++11 -w -o "$OUT/muduo_server" \
     "$ROOT/servers/muduo/muduo_server.cpp" $MU_SRC \
     -I"$MU" -I"$ROOT/common" "$OUT/canned.o" -lpthread -lrt
