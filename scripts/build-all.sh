@@ -32,7 +32,7 @@ g++ -O2 -std=gnu++11 -o "$OUT/corocount" \
     "$LIB/co_routine.cpp" "$LIB/co_epoll.cpp" "$LIB/co_hook_sys_call.cpp" \
     "$LIB/co_comm.cpp" "$LIB/coctx.cpp" \
     "$LIB/coctx_swap.S" \
-    -I"$ROOT/corocount" -I"$LIB" -lpthread -ldl
+    -I"$ROOT/servers/libco" -I"$LIB" -lpthread -ldl
 # slim variant: aSpec[1024] (8KB/coroutine, unused by corocount) -> aSpec[4]
 SLIM="$ROOT/corocount/libco_slim"
 rm -rf "$SLIM"; mkdir -p "$SLIM"
@@ -43,7 +43,7 @@ g++ -O2 -std=gnu++11 -o "$OUT/corocount_slim" \
     "$SLIM/co_routine.cpp" "$SLIM/co_epoll.cpp" "$SLIM/co_hook_sys_call.cpp" \
     "$SLIM/co_comm.cpp" "$SLIM/coctx.cpp" \
     "$SLIM/coctx_swap.S" \
-    -I"$ROOT/corocount" -I"$SLIM" -lpthread -ldl
+    -I"$ROOT/servers/libco" -I"$SLIM" -lpthread -ldl
 
 echo "== facil.io"
 cc -O2 -Wall -o "$OUT/fio_server" \
