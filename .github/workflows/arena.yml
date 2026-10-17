@@ -9,7 +9,7 @@ on:
     inputs:
       levels:
         description: 'JSON array of level tags: 20k,100k,250k,300k (decoded in run-arena.sh)'
-        default: '["20k","100k","250k","300k"]''
+        default: '["20k","100k","250k","300k"]'
       servers:
         description: 'JSON array of servers, e.g. ["sink","co_server"]'
         default: '["sink","co_server","fio_server","muduo_server"]'
