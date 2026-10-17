@@ -11,8 +11,8 @@ on:
         description: 'matrix JSON, e.g. [{"vus":250000,"ramp":150,"hold":240,"tag":"250k"}]'
         default: '[{"vus":20000,"ramp":60,"hold":120,"tag":"20k"},{"vus":100000,"ramp":90,"hold":180,"tag":"100k"},{"vus":250000,"ramp":150,"hold":240,"tag":"250k"},{"vus":300000,"ramp":180,"hold":240,"tag":"300k"}]'
       servers:
-        description: 'comma list: sink,co_server,fio_server,muduo_server'
-        default: 'sink,co_server,fio_server,muduo_server'
+        description: 'JSON array of servers, e.g. ["sink","co_server"]'
+        default: '["sink","co_server","fio_server","muduo_server"]'
 
 permissions:
   contents: read
@@ -41,7 +41,7 @@ jobs:
       fail-fast: false
       max-parallel: 8
       matrix:
-        server: ${{ fromJSON(format('["{0}"]', replace(inputs.servers, ',', '","'))) }}
+        server: ${{ fromJSON(inputs.servers) }}
         level: ${{ fromJSON(inputs.levels) }}
     steps:
       - uses: actions/checkout@v4
