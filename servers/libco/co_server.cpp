@@ -57,6 +57,7 @@ struct task_t {
 /* per-process state; the event loop is single-threaded so no locks */
 static int g_lfd = -1;
 static std::vector<task_t *> g_idle;
+static stShareStack_t *g_ss;
 static long long g_created, g_accepts, g_closes, g_reqs, g_wegain, g_regain;
 static long long g_nfeed, g_npost, g_nlike, g_ncreate, g_nhealth, g_nunk;
 static long long g_open;
@@ -172,6 +173,8 @@ drop:
 }
 
 /* ---- the acceptor coroutine ---- */
+static void grow_pool(int n);   /* below: grows the idle pool on demand */
+
 static void *accept_routine(void *)
 {
     co_enable_hook_sys();
@@ -184,10 +187,10 @@ static void *accept_routine(void *)
             co_poll(co_get_epoll_ct(), &pf, 1, 1000);
             continue;
         }
-        if (g_accepts - g_closes >= g_maxconn || g_idle.empty()) {
-            /* pool exhausted or at the cap: take the hit visibly, don't crash */
-            close(fd);
-            continue;
+        if (g_accepts - g_closes >= g_maxconn) { close(fd); continue; }
+        if (g_idle.empty()) {
+            grow_pool(8192);   /* the pool grows on demand up to the cap */
+            if (g_idle.empty()) { close(fd); continue; }
         }
         int one = 1;
         setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
@@ -230,12 +233,12 @@ static void *stats_routine(void *)
 }
 
 /* ---- per-process boot ---- */
-static void grow_pool(int n, stShareStack_t *ss)
+static void grow_pool(int n)
 {
     stCoRoutineAttr_t attr;
     memset(&attr, 0, sizeof attr);
     attr.stack_size = 0;
-    attr.share_stack = ss;
+    attr.share_stack = g_ss;
     for (int i = 0; i < n && (long long)g_created < g_maxconn; i++) {
         task_t *t = (task_t *)calloc(1, sizeof *t);
         if (!t) { perror("calloc"); exit(1); }
@@ -261,8 +264,8 @@ static int child_main(int port, int stacks, int stack_kb)
     if (listen(g_lfd, 65536) < 0) { perror("listen"); exit(1); }
     set_nonblock(g_lfd);
 
-    stShareStack_t *ss = co_alloc_sharestack(stacks, stack_kb * 1024);
-    grow_pool(8192, ss);
+    g_ss = co_alloc_sharestack(stacks, stack_kb * 1024);
+    grow_pool(8192);
 
     stCoRoutine_t *co = NULL;
     co_create(&co, NULL, accept_routine, NULL);
